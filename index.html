@@ -15,6 +15,7 @@
     #game-over { border-color: #ff3333; } #game-over h2 { color: #ff3333; margin: 0 0 10px 0; font-size: 40px; }
     #game-clear { border-color: #00ffcc; } #game-clear h2 { color: #00ffcc; margin: 0 0 10px 0; font-size: 40px; }
     button { background: #fff; color: #000; border: none; padding: 10px 25px; font-size: 18px; font-weight: bold; cursor: pointer; margin-top: 15px; transition: 0.2s; } button:hover { transform: scale(1.1); }
+    html.kbd-mode, html.kbd-mode body, html.kbd-mode canvas { cursor: none !important; }
 </style></head><body>
 
     <div id="viewport">
@@ -25,10 +26,10 @@
         
         <div id="ui">
             <h1>SCROLLBAR RALLY 4D</h1><div id="status">SCORE: 0 / 10</div><div id="breakdown" style="font-size:14px; color:#ccc; margin-top:4px;"></div>
-            <div id="instructions">左上からのみ緑玉が飛来！右・下のバーで跳ね返して【赤玉】にし、ピンクの自機に当てろ！左下の【ミニマップ】で接近を察知！</div>
+            <div id="instructions">【操作：マウスドラッグ または 矢印キー】左上からのみ緑玉が飛来！右・下のバーで跳ね返して【赤玉】にし、ピンクの自機に当てろ！左下の【ミニマップ】で接近を察知！</div>
         </div>
-        <div id="game-over" class="screen"><h2>GAME OVER</h2><div style="color:#fff;">緑玉が本体に直撃してしまった！</div><button onclick="resetGame()" style="background:#ff3333; color:#fff;">RETRY</button></div>
-        <div id="game-clear" class="screen"><h2>STAGE CLEAR !!</h2><div style="color:#fff; font-weight:bold;">左上からの猛攻を凌ぎ、10ポイント獲得！</div><div id="clear-detail" style="color:#ccc; margin-top:8px;"></div><button onclick="resetGame()" style="background:#00ffcc; color:#000;">PLAY AGAIN</button></div>
+        <div id="game-over" class="screen"><h2>GAME OVER</h2><div style="color:#fff;">緑玉が本体に直撃してしまった！</div><button onclick="resetGame()" style="background:#ff3333; color:#fff;">RETRY (Enter)</button></div>
+        <div id="game-clear" class="screen"><h2>STAGE CLEAR !!</h2><div style="color:#fff; font-weight:bold;">左上からの猛攻を凌ぎ、10ポイント獲得！</div><div id="clear-detail" style="color:#ccc; margin-top:8px;"></div><button onclick="resetGame()" style="background:#00ffcc; color:#000;">PLAY AGAIN (Enter)</button></div>
     </div>
 
     <script>
@@ -44,15 +45,34 @@
         function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
         window.addEventListener('resize', resize); resize();
 
-        function updatePos(e) {
+        function applyPos(x, y) {
             if (isState !== "PLAYING") return;
-            const rect = canvas.getBoundingClientRect(); playerX = e.clientX - rect.left; playerY = e.clientY - rect.top;
+            playerX = Math.max(0, Math.min(canvas.width, x)); playerY = Math.max(0, Math.min(canvas.height, y));
             const maxIdxX = document.documentElement.scrollWidth - document.documentElement.clientWidth, maxIdxY = document.documentElement.scrollHeight - document.documentElement.clientHeight;
             window.scrollTo(Math.max(0, Math.min(maxIdxX, ((playerX - 50) / (canvas.width - 100)) * maxIdxX)), Math.max(0, Math.min(maxIdxY, ((playerY - 50) / (canvas.height - 100)) * maxIdxY)));
         }
+        // マウスドラッグ操作（矢印キーと選択式：どちらでも操作可能）
+        function updatePos(e) { const rect = canvas.getBoundingClientRect(); applyPos(e.clientX - rect.left, e.clientY - rect.top); }
         canvas.addEventListener('mousedown', (e) => { isDragging = true; updatePos(e); });
         window.addEventListener('mousemove', (e) => { if (isDragging) updatePos(e); });
         window.addEventListener('mouseup', () => isDragging = false);
+        // 矢印キー操作（ドラッグ相当：自機とスクロールバーが連動して動く）
+        const KEY_SPEED = 8; // 1フレームあたりの移動量(px)。好みで調整
+        const keys = { ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false };
+        window.addEventListener('keydown', (e) => { if (e.key in keys) { keys[e.key] = true; e.preventDefault(); document.documentElement.classList.add('kbd-mode'); } });
+        // マウスを実際に動かす／クリックしたらポインタを再表示（スクロール由来の疑似mousemoveは無視）
+        const showCursor = () => document.documentElement.classList.remove('kbd-mode');
+        window.addEventListener('mousemove', (e) => { if (e.movementX !== 0 || e.movementY !== 0) showCursor(); });
+        window.addEventListener('mousedown', showCursor);
+        window.addEventListener('keyup', (e) => { if (e.key in keys) { keys[e.key] = false; e.preventDefault(); } });
+        window.addEventListener('keydown', (e) => { if (e.key === 'Enter' && isState !== "PLAYING") { e.preventDefault(); resetGame(); } });
+        window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+        function handleKeyMove() {
+            const dx = (keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0), dy = (keys.ArrowDown ? 1 : 0) - (keys.ArrowUp ? 1 : 0);
+            if (dx === 0 && dy === 0) return;
+            const n = (dx !== 0 && dy !== 0) ? Math.SQRT2 : 1; // 斜めも同じ速さ
+            applyPos(playerX + dx * KEY_SPEED / n, playerY + dy * KEY_SPEED / n);
+        }
 
         // 【変更】赤玉を必ず左上方向（角度180度〜270度の範囲、画面の左上外側）から発生させる
         function spawnBullet() {
@@ -97,6 +117,7 @@
             statusEl.innerText = `SCORE: ${score} / 10`; breakdownEl.innerText = breakdownText();
             if (score >= 10) { isState = "CLEAR"; clearDetailEl.innerText = breakdownText(); gcScreen.style.display = 'block'; return; }
             
+            handleKeyMove();
             const now = Date.now(); if (lastSpawn === 0 || now - lastSpawn > spawnInterval) { spawnBullet(); lastSpawn = now; }
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -121,9 +142,17 @@
                 let b = bullets[i]; b.x += b.vx; b.y += b.vy;
                 ctx.beginPath(); ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2); ctx.fillStyle = (b.type === "in" ? '#00ff66' : '#ff3333'); ctx.fill();
 
-                if (b.type === "in") {
-                    if (b.x + b.radius >= canvas.width - thick && b.y >= ty0 && b.y <= ty1) { b.vx = -Math.abs(b.vx) * 1.2; b.type = "back"; continue; }
-                    if (b.y + b.radius >= canvas.height - thick && b.x >= tx0 && b.x <= tx1) { b.vy = -Math.abs(b.vy) * 1.2; b.type = "back"; continue; }
+                // 赤玉・緑玉どちらでも、バーに向かって進んでいる間は何度でも跳ね返る（反射のたびに1.2倍、上限あり）
+                const MAX_SPD = 14;
+                if (b.vx > 0 && b.x + b.radius >= canvas.width - thick && b.y >= ty0 && b.y <= ty1) {
+                    b.vx = -Math.abs(b.vx) * 1.2; b.type = "back";
+                    const sp = Math.hypot(b.vx, b.vy); if (sp > MAX_SPD) { b.vx *= MAX_SPD / sp; b.vy *= MAX_SPD / sp; }
+                    continue;
+                }
+                if (b.vy > 0 && b.y + b.radius >= canvas.height - thick && b.x >= tx0 && b.x <= tx1) {
+                    b.vy = -Math.abs(b.vy) * 1.2; b.type = "back";
+                    const sp = Math.hypot(b.vx, b.vy); if (sp > MAX_SPD) { b.vx *= MAX_SPD / sp; b.vy *= MAX_SPD / sp; }
+                    continue;
                 }
 
                 if (Math.sqrt((b.x - playerX)**2 + (b.y - playerY)**2) < playerRadius + b.radius) {
@@ -138,7 +167,7 @@
         }
 
         function resetGame() {
-            bullets = []; score = 0; scoreByType = [0, 0, 0]; isState = "PLAYING"; isDragging = false; goScreen.style.display = 'none'; gcScreen.style.display = 'none';
+            bullets = []; score = 0; scoreByType = [0, 0, 0]; isState = "PLAYING"; isDragging = false; for (const k in keys) keys[k] = false; goScreen.style.display = 'none'; gcScreen.style.display = 'none';
             playerX = window.innerWidth / 2; playerY = window.innerHeight / 2;
 window.scrollTo((document.documentElement.scrollWidth - document.documentElement.clientWidth) / 2, (document.documentElement.scrollHeight - document.documentElement.clientHeight) / 2);
 lastSpawn = 0; gameLoop();
